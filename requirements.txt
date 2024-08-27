@@ -1,0 +1,17 @@
+Faker==19.13.0
+numpy
+openai
+pandas==1.5.3
+pycaret
+pydub
+python-dotenv
+python-magic==0.4.27
+qdrant-client
+streamlit
+streamlit-audiorecorder==0.0.5
+# jupyterlab
+# matplotlib
+# plotly
+# pydantic==2.8.2
+# seaborn
+# ydata-profiling

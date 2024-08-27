@@ -19,7 +19,28 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, Distance, VectorParams
 
 
-env = dotenv_values('.env')
+class Env:
+    def __init__(self, filename):
+        self._st_env = dotenv_values(filename)
+        self._develop_mode = self._st_env.get('DEVELOP_MODE')
+    
+    def _get_env_data(self):
+        return self._st_env if self._develop_mode else st.secrets
+    
+    def __getitem__(self, key):
+        _env = self._get_env_data()
+        if key not in _env:
+            raise IndexError
+        return _env.get(key)
+
+    def get(self, key, default=None):
+        _env = self._get_env_data()
+        if key not in _env:
+            return default
+        return _env.get(key)
+
+
+env = Env('.env')
 AUDIO_TRANSCRIBE_MODEL = "whisper-1"
 OPENAI_API_KEY = env["OPENAI_API_KEY"]
 QDRANT_URL = env["QDRANT_URL"]
