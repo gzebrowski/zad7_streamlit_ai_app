@@ -23,10 +23,10 @@ class Env:
     def __init__(self, filename):
         self._st_env = dotenv_values(filename)
         self._develop_mode = self._st_env.get('DEVELOP_MODE')
-    
+
     def _get_env_data(self):
         return self._st_env if self._develop_mode else st.secrets
-    
+
     def __getitem__(self, key):
         _env = self._get_env_data()
         if key not in _env:
@@ -180,7 +180,7 @@ def get_or_create_fake_corelated_data(filename):
 class QdrantHelper:
     EMBEDDING_DIM = 1536  # 3072
     EMBEDDING_MODEL = 'text-embedding-3-small'  # text-embedding-3-large
-    
+
     @classmethod
     @st.cache_resource
     def get_qdrant_client(cls):
@@ -191,7 +191,6 @@ class QdrantHelper:
                 qdrant_params['api_key'] = QDRANT_KEY
         elif QDRANT_PATH:
             qdrant_params['path'] = QDRANT_PATH
-        
         return QdrantClient(**qdrant_params)
 
     @classmethod
@@ -445,7 +444,7 @@ if not any_missing:
     }
     for f_pol, f_field in FAV_ACTIVITIES:
         data_person[f'fav_{f_field}'] = 1 if f_pol == fav_activity[1] else 0
-        
+
     person_df = pd.DataFrame([data_person])
     predicted_cluster_id = predict_model(kmeans_pipeline, data=person_df)["Cluster"].values[0]
     predicted_cluster_data = cluster_names_and_descriptions[predicted_cluster_id]

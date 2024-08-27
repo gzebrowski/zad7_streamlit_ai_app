@@ -2,7 +2,7 @@ Faker==19.13.0
 numpy
 openai
 pandas==1.5.3
-pycaret
+pycaret[full]
 pydub
 python-dotenv
 python-magic==0.4.27
