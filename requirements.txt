@@ -1,13 +1,12 @@
+streamlit
 Faker==19.13.0
-numpy
 openai
-pandas==1.5.3
+pandas
 pycaret[full]
 pydub
 python-dotenv
-python-magic==0.4.27
+python-magic
 qdrant-client
-streamlit
 streamlit-audiorecorder==0.0.5
 # jupyterlab
 # matplotlib
@@ -15,3 +14,4 @@ streamlit-audiorecorder==0.0.5
 # pydantic==2.8.2
 # seaborn
 # ydata-profiling
+# numpy
