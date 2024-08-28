@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-# import instructor
+import instructor
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -15,6 +15,7 @@ from openai import OpenAI
 from pycaret.clustering import (assign_model, create_model, load_model,
                                 predict_model, save_model)
 from pycaret.clustering import setup as setup_model
+# from pydantic.main import ModelMetaclass
 from pydantic import BaseModel
 
 from helpers import (get_mp3_audio_and_hash, to_int, transcribe_audio,
@@ -216,6 +217,22 @@ def find_cluster(kmeans_pipeline, data):
     return predict_with_cluster_df['Cluster']
 
 
+def retrieve_structure(openai_client, text, response_model):
+    instructor_openai_client = instructor.from_openai(openai_client)
+    res = instructor_openai_client.chat.completions.create(
+        model=env['DESC_AI_MODEL'],
+        temperature=0,
+        response_model=response_model,
+        messages=[
+            {
+                "role": "user",
+                "content": text,
+            },
+        ],
+    )
+    return res.model_dump()
+
+
 qdrant_helper = QdrantHelper(get_openai_client())
 
 kmeans_pipeline, cluster_names_and_descriptions, search_data, full_data = load_my_model()
@@ -224,6 +241,7 @@ dyn_f = DynamicFilters(full_data)
 if 'gathered_data' not in st.session_state:
     st.session_state.gathered_data = {}
     st.session_state.audio_hashes = []
+    st.session_state.audio_story_hash = None
 
 data_to_gather: list[tuple[str, str, dict]] = [
     ('sex', 'podaj swoją płeć', {'prefix': 'Płeć ', 'values': ['mężczyzna', 'kobieta']}),
@@ -246,7 +264,7 @@ qdrant_helper.index_embedings([
 with st.sidebar:
     dyn_f.show_filters()
 
-tab1, tab2 = st.tabs(['znajdź dopasowania', 'eksploruj dane'])
+tab1, tab2, tab3 = st.tabs(['znajdź dopasowania', 'eksploruj dane', 'Opowiedz o sobie'])
 with tab1:
     gathered_data = dict(st.session_state.gathered_data)
     any_missing = False
@@ -303,4 +321,38 @@ with tab1:
 with tab2:
     dyn_f.show_dataframe()
 
-# MyModel = type('MyModel', (BaseModel,), {})
+
+fields = [
+    ('gender', 'sex', str),
+    ('favorite_place', 'fav_place', str),
+    ('education_level', 'edu_level', str),
+    ('favorite_activity', 'fav_activity', str),
+    ('religious_faith', 'religious faith', str),
+    ('political_choice', 'politicalchoice', str),
+    ('age', 'age', int),
+]
+
+with tab3:
+    cls_fields = {}
+    cls_annotations = {}
+
+    for f, gf, tp in fields:
+        if gf not in gathered_data:
+            cls_fields[f] = None
+            cls_annotations[f] = Optional[tp]
+
+    cls_fields['__annotations__'] = cls_annotations
+    MyModel = type('MyModel', (BaseModel,), cls_fields)
+    my_model = MyModel()
+    st.header('Opowiedz nam o sobie')
+    st.write(
+        '''podaj swoją płeć, swój wiek, swoje wykształcenie, ulubione miejsce wypoczynku,
+ulubiony sposób spędzania wolnego czasu, swoje przekonania religijne i polityczne''')
+    curr_rec_story = audiorecorder(start_prompt='Nagraj', stop_prompt='Zakończ', key='audio_story')
+    if curr_rec_story:
+        audio_bytes_story, hsh2 = get_mp3_audio_and_hash(curr_rec_story)
+        if hsh2 != st.session_state.audio_story_hash:
+            st.session_state.audio_story_hash = hsh2
+            txt2 = transcribe_audio(get_openai_client(), audio_bytes_story)
+            result3 = retrieve_structure(get_openai_client(), txt2, MyModel)
+            st.write(result3)

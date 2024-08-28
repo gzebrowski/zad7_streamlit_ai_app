@@ -77,4 +77,4 @@ class DynamicFilters:
             df2 = df2[all_filters]
         df3 = df2[self._sel_columns or self._df.columns]
         st.write(df3)
-
+        
