@@ -3,4 +3,4 @@
 *.pkl
 _data_*
 .devcontainer
-# *.pyc
+*.pyc
