@@ -2,58 +2,30 @@ import json
 import math
 import random
 import re
-from hashlib import md5
-from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
+# import instructor
 import numpy as np
 import pandas as pd
 import streamlit as st
 from audiorecorder import audiorecorder
-from dotenv import dotenv_values
 from faker import Faker
 from openai import OpenAI
-from pycaret.clustering import setup as setup_model, create_model, assign_model, load_model, save_model, predict_model
-from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, Distance, VectorParams
+from pycaret.clustering import (assign_model, create_model, load_model,
+                                predict_model, save_model)
+from pycaret.clustering import setup as setup_model
+from pydantic import BaseModel
 
-
-class Env:
-    def __init__(self, filename):
-        self._st_env = dotenv_values(filename)
-        self._develop_mode = self._st_env.get('DEVELOP_MODE')
-
-    def _get_env_data(self):
-        return self._st_env if self._develop_mode else st.secrets
-
-    def __getitem__(self, key):
-        _env = self._get_env_data()
-        if key not in _env:
-            raise IndexError
-        return _env.get(key)
-
-    def get(self, key, default=None):
-        _env = self._get_env_data()
-        if key not in _env:
-            return default
-        return _env.get(key)
-
+from helpers import (get_mp3_audio_and_hash, to_int, transcribe_audio,
+                     write_html)
+from qdrant_helpers import QdrantHelper
+from streamlit_env import Env
+from dynamic_filters import DynamicFilters
 
 env = Env('.env')
-AUDIO_TRANSCRIBE_MODEL = "whisper-1"
 OPENAI_API_KEY = env["OPENAI_API_KEY"]
-QDRANT_URL = env["QDRANT_URL"]
-QDRANT_KEY = env.get("QDRANT_KEY")
-QDRANT_PATH = env.get("QDRANT_PATH")
 
-QDRANT_COLLECTIONS_EMBEDDING_DIM = {
-    'favorites': 1024,
-    'edu_level': 1024,
-    'faith': 1024,
-    'fav_place': 1024,
-    'political_convictions': 1024,
-}
 EDU_LEVEL_CHOICES = ['Podstawowe', 'Średnie', 'Wyższe'], [0.13, 0.53, 0.34]
 FAV_PLACES_CHOICES = ['nad wodą', 'w lesie', 'w górach', 'inne'], [0.3, 0.15, 0.45, 0.1]
 FAV_ACTIVITIES = [
@@ -75,7 +47,7 @@ FAV_ACTIVITIES = [
 ]
 
 FAITH_CHOICES = [
-    ['katolik praktykujący', 'katolik niepraktykujący', 'protestant / ewangeliczny chrześcijanin', 
+    ['katolik praktykujący', 'katolik niepraktykujący', 'protestant / ewangeliczny chrześcijanin',
         'ateista', 'prawosławny', 'inne wyznania'],
     [0.30, 0.50, 0.01, 0.12, 0.01, 0.06]
 ]
@@ -86,22 +58,11 @@ POLITICAL_CONVICTIONS_FAITH_RELATION = [
 ]
 
 
-def write_html(html: str):
-    st.write(html, unsafe_allow_html=True)
-
-
 def get_age_category(age: Optional[int]) -> str:
     if not age:
         return None
     age_category_tmp = (age - 18) // 5
     return '%s-%s' % (age_category_tmp * 5 + 18, (age_category_tmp + 1) * 5 + 18)
-
-
-def to_int(val: str) -> int | None:
-    try:
-        return int(val)
-    except (ValueError, TypeError):
-        return None
 
 
 def get_or_create_fake_corelated_data(filename):
@@ -177,121 +138,9 @@ def get_or_create_fake_corelated_data(filename):
     return people
 
 
-class QdrantHelper:
-    EMBEDDING_DIM = 1536  # 3072
-    EMBEDDING_MODEL = 'text-embedding-3-small'  # text-embedding-3-large
-
-    @classmethod
-    @st.cache_resource
-    def get_qdrant_client(cls):
-        qdrant_params = {}
-        if QDRANT_URL:
-            qdrant_params['url'] = QDRANT_URL
-            if QDRANT_KEY:
-                qdrant_params['api_key'] = QDRANT_KEY
-        elif QDRANT_PATH:
-            qdrant_params['path'] = QDRANT_PATH
-        return QdrantClient(**qdrant_params)
-
-    @classmethod
-    def assure_db_collection_exists(cls, collection_name):
-        qdrant_client = cls.get_qdrant_client()
-        if not qdrant_client.collection_exists(collection_name):
-            qdrant_client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=cls.EMBEDDING_DIM,
-                    distance=Distance.COSINE,
-                ),
-            )
-            return False
-        return True
-
-    @classmethod
-    def index_embedings(cls, items: list[dict]):
-        for item in items:
-            if not cls.assure_db_collection_exists(item['name']):
-                for nr, value in enumerate(item['values']):
-                    cls.embeding_to_db(item['name'], value, idx=nr + 1)
-
-    @classmethod
-    def get_embedding(cls, text):
-        openai_client = get_openai_client()
-        result = openai_client.embeddings.create(
-            input=[text],
-            model=cls.EMBEDDING_MODEL,
-            dimensions=cls.EMBEDDING_DIM,
-        )
-        return result.data[0].embedding
-
-    @classmethod
-    def embeding_to_db(cls, collection_name, text, idx=None, wait=False):
-        qdrant_client = cls.get_qdrant_client()
-        if idx is None:
-            points_count = qdrant_client.count(
-                collection_name=collection_name,
-                exact=True,
-            )
-            idx = points_count.count + 1
-        qdrant_client.upsert(
-            collection_name=collection_name,
-            wait=wait,
-            points=[
-                PointStruct(
-                    id=idx,
-                    vector=cls.get_embedding(text=text),
-                    payload={
-                        "text": text,
-                    },
-                )
-            ]
-        )
-
-    @classmethod
-    def search_values_from_db(cls, collection_name, query=None, limit=10):
-        qdrant_client = cls.get_qdrant_client()
-        if not query:
-            values = qdrant_client.scroll(collection_name=collection_name, limit=limit)[0]
-            result = []
-            for value in values:
-                result.append({
-                    "text": value.payload["text"],
-                    "score": None,
-                })
-
-            return result
-        else:
-            values = qdrant_client.search(
-                collection_name=collection_name,
-                query_vector=cls.get_embedding(text=query),
-                limit=limit,
-            )
-            result = []
-            for value in values:
-                result.append({
-                    "text": value.payload["text"],
-                    "score": value.score,
-                })
-
-            return result
-
-
 @st.cache_resource
 def get_openai_client():
     return OpenAI(api_key=OPENAI_API_KEY)
-
-
-def transcribe_audio(audio_bytes):
-    openai_client = get_openai_client()
-    audio_file = BytesIO(audio_bytes)
-    audio_file.name = "audio.mp3"
-    transcript = openai_client.audio.transcriptions.create(
-        file=audio_file,
-        model=AUDIO_TRANSCRIBE_MODEL,
-        response_format="verbose_json",
-        language='pl',
-    )
-    return transcript.text
 
 
 def generate_cluster_descriptions(data_with_kmeans):
@@ -328,6 +177,7 @@ def generate_cluster_descriptions(data_with_kmeans):
                 }
     '''
     openai_client = get_openai_client()
+
     response = openai_client.chat.completions.create(model=env['DESC_AI_MODEL'], temperature=0, messages=[{
         'role': 'user',
         'content': [{'type': 'text', 'text': prompt}],
@@ -366,7 +216,10 @@ def find_cluster(kmeans_pipeline, data):
     return predict_with_cluster_df['Cluster']
 
 
+qdrant_helper = QdrantHelper(get_openai_client())
+
 kmeans_pipeline, cluster_names_and_descriptions, search_data, full_data = load_my_model()
+dyn_f = DynamicFilters(full_data)
 
 if 'gathered_data' not in st.session_state:
     st.session_state.gathered_data = {}
@@ -375,7 +228,7 @@ if 'gathered_data' not in st.session_state:
 data_to_gather: list[tuple[str, str, dict]] = [
     ('sex', 'podaj swoją płeć', {'prefix': 'Płeć ', 'values': ['mężczyzna', 'kobieta']}),
     ('edu_level', 'podaj wykształcenie', {'prefix': 'wykształcenie ', 'values': EDU_LEVEL_CHOICES[0]}),
-    ('fav_place', 'podaj, gdzie najbardziej lubisz wypoczywać', {'prefix': 'Ulubione miejsce wypoczynku ', 
+    ('fav_place', 'podaj, gdzie najbardziej lubisz wypoczywać', {'prefix': 'Ulubione miejsce wypoczynku ',
                                                                  'values': FAV_PLACES_CHOICES[0]}),
     ('fav_activity', 'podaj, ulubiony sposób spędzania wolnego czasu',
      {'prefix': 'Ulubiony sposób spędzania wolnego czasu ', 'values': [f[0] for f in FAV_ACTIVITIES]}),
@@ -384,73 +237,70 @@ data_to_gather: list[tuple[str, str, dict]] = [
      {'prefix': 'opcja polityczna ', 'values': [x[0] for x in POLITICAL_CONVICTIONS_FAITH_RELATION]}),
     ('age_category', 'podaj wiek', {'numeric': True, 'format': get_age_category, 'help_text': 'Podaj samą liczbę lat'}),
 ]
-QdrantHelper.index_embedings([
+qdrant_helper.index_embedings([
     {
         'name': x[0],
         'values': [x[2]['prefix'] + v for v in x[2]['values']],
     } for x in data_to_gather if x[2].get('values')])
-aa = '''
-for k, prompt, _ in data_to_gather:
-    if k not in st.session_state.gathered_data:
-        st.write(prompt)
-        st.write
-        curr_rec = audio_recorder(energy_threshold=0)
-        if curr_rec:
-            st.audio(curr_rec, format="audio/wav")
-        break
 
-'''
+with st.sidebar:
+    dyn_f.show_filters()
 
-gathered_data = dict(st.session_state.gathered_data)
-any_missing = False
-for k, prompt, opts in data_to_gather:
-    if k not in gathered_data:
-        any_missing = True
-        st.write(prompt)
-        help_txt = ''
-        if opts.get('values'):
-            help_txt = 'np: %s' % ', '.join(opts['values'])
-        elif opts.get('help_text'):
-            help_txt = opts['help_text']
-        write_html(f'<p style="color:#888; font-size:0.7em;"><em>{help_txt}</em></p>')
-        curr_rec = audiorecorder(start_prompt='Nagraj', stop_prompt='Zakończ')
-        if curr_rec:
-            audio = BytesIO()
-            curr_rec.export(audio, format="mp3")
-            audio_bytes = audio.getvalue()
-            hsh = md5(audio_bytes).hexdigest()
-            if hsh not in st.session_state.audio_hashes:
-                st.session_state.audio_hashes = st.session_state.audio_hashes + [hsh]
-                txt = transcribe_audio(audio_bytes)
-                if opts.get('values'):
-                    recs = QdrantHelper.search_values_from_db(k, query=txt, limit=2)
-                    gathered_data[k] = txt, recs[0]['text'][len(opts['prefix']):], recs
-                elif opts.get('numeric'):
-                    val = re.search(r'[\d]+', txt)
-                    val = to_int(val[0] if val else None)
-                    val = opts['format'](val)
-                    gathered_data[k] = txt, val, None
-                st.session_state.gathered_data = gathered_data
-                st.rerun()
-                # st.audio(audio_bytes, format="audio/mp3")
-        break
-    else:
-        st.write(f'**{prompt}**: ', str(st.session_state.gathered_data[k]))
+tab1, tab2 = st.tabs(['znajdź dopasowania', 'eksploruj dane'])
+with tab1:
+    gathered_data = dict(st.session_state.gathered_data)
+    any_missing = False
+    for k, prompt, opts in data_to_gather:
+        if k not in gathered_data:
+            any_missing = True
+            st.write(prompt)
+            help_txt = ''
+            if opts.get('values'):
+                help_txt = 'np: %s' % ', '.join(opts['values'])
+            elif opts.get('help_text'):
+                help_txt = opts['help_text']
+            write_html(f'<p style="color:#888; font-size:0.7em;"><em>{help_txt}</em></p>')
+            curr_rec = audiorecorder(start_prompt='Nagraj', stop_prompt='Zakończ')
+            if curr_rec:
+                audio_bytes, hsh = get_mp3_audio_and_hash(curr_rec)
+                if hsh not in st.session_state.audio_hashes:
+                    st.session_state.audio_hashes = st.session_state.audio_hashes + [hsh]
+                    txt = transcribe_audio(get_openai_client(), audio_bytes)
+                    if opts.get('values'):
+                        recs = qdrant_helper.search_values_from_db(k, query=txt, limit=2)
+                        gathered_data[k] = txt, recs[0]['text'][len(opts['prefix']):], recs
+                    elif opts.get('numeric'):
+                        val = re.search(r'[\d]+', txt)
+                        val = to_int(val[0] if val else None)
+                        val = opts['format'](val)
+                        gathered_data[k] = txt, val, None
+                    st.session_state.gathered_data = gathered_data
+                    st.rerun()
+                    # st.audio(audio_bytes, format="audio/mp3")
+            break
+        else:
+            st.write(f'**{prompt}**: ', str(st.session_state.gathered_data[k]))
 
-if not any_missing:
-    fav_activity = gathered_data.pop('fav_activity')
-    data_person = {
-        k: gathered_data[k][1] for k in gathered_data
-    }
-    for f_pol, f_field in FAV_ACTIVITIES:
-        data_person[f'fav_{f_field}'] = 1 if f_pol == fav_activity[1] else 0
+    if not any_missing:
+        fav_activity = gathered_data.pop('fav_activity')
+        data_person = {
+            k: gathered_data[k][1] for k in gathered_data
+        }
+        for f_pol, f_field in FAV_ACTIVITIES:
+            data_person[f'fav_{f_field}'] = 1 if f_pol == fav_activity[1] else 0
 
-    person_df = pd.DataFrame([data_person])
-    predicted_cluster_id = predict_model(kmeans_pipeline, data=person_df)["Cluster"].values[0]
-    predicted_cluster_data = cluster_names_and_descriptions[predicted_cluster_id]
-    st.header('Rezultat')
-    write_html(f"<p><strong>Najbardziej dopasowana kategoria:</strong> {predicted_cluster_data['name']}</p>")
-    write_html(f"<p>{predicted_cluster_data['description']}</p>")
-    idxs = search_data[search_data['Cluster'] == predicted_cluster_id].index.to_list()
-    st.header('Lista osób z tej kategorii')
-    st.write(full_data[full_data.index.isin(idxs)])
+        person_df = pd.DataFrame([data_person])
+        predicted_cluster_id = predict_model(kmeans_pipeline, data=person_df)["Cluster"].values[0]
+        predicted_cluster_data = cluster_names_and_descriptions[predicted_cluster_id]
+        st.header('Rezultat')
+        write_html(f"<p><strong>Najbardziej dopasowana kategoria:</strong> {predicted_cluster_data['name']}</p>")
+        write_html(f"<p>{predicted_cluster_data['description']}</p>")
+        idxs = search_data[search_data['Cluster'] == predicted_cluster_id].index.to_list()
+        st.header('Lista osób z tej kategorii')
+        st.write(full_data[full_data.index.isin(idxs)])
+
+
+with tab2:
+    dyn_f.show_dataframe()
+
+# MyModel = type('MyModel', (BaseModel,), {})
