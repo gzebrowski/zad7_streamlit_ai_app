@@ -331,7 +331,8 @@ with tab1:
     if cls_fields:
         curr_rec_story = audiorecorder(start_prompt='Nagraj', stop_prompt='Zakończ', key='audio_story')
         if curr_rec_story:
-            max_length = min(45000, len(cls_fields) * 10000)
+            # max_length = min(45000, len(cls_fields) * 10000)
+            max_length = 45000
             audio_bytes_story, hsh2 = get_mp3_audio_and_hash(curr_rec_story[:max_length])
             if hsh2 != st.session_state.audio_story_hash:
                 st.session_state.audio_story_hash = hsh2
