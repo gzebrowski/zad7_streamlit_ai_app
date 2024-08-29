@@ -11,6 +11,10 @@ def write_html(html: str):
     st.write(html, unsafe_allow_html=True)
 
 
+def write_small(text: str):
+    write_html(f'<p style="color:#888; font-size:0.7em;"><em>{text}</em></p>')
+
+
 def to_int(val: Union[str, int, float], default: Any = None) -> int | None:
     try:
         return int(val)
@@ -45,15 +49,3 @@ def is_numeric(val):
     except (TypeError, ValueError):
         return False
     return True
-
-'''
-# TODO
-def text_to_number(txt: str) -> str:
-    first_numbers = ['jeden', 'dwa', 'trzy', 'cztery', 'pięć', 'sześć', 'siedem', 'osiem', 'dziewięć', 'dziesięć',
-                     'jedenaście', 'dwanaście', 'trzynaście', 'czternaście', 'piętnaście', 'szesnaście', 'siedemnaście',
-                     'osiemnaście', 'dziewiętnaście', 'dwadzieścia']
-    trans_map = {fn: nr + 1 for nr, fn in enumerate(first_numbers)}
-    decimals = ['trzydzieści', 'czterdzieści', 'pięćdziesiąt', 'sześćdziesiąt', 'siedemdziesiąt', 'osiemdziesiąt',
-                'dziewięćdziesiąt']
-    trans_map.update({dc: 30 + 10 * nr for nr, dc in enumerate(decimals)})
-'''

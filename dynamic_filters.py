@@ -1,6 +1,7 @@
 import functools
 
 import streamlit as st
+
 from helpers import is_numeric
 
 
@@ -32,14 +33,14 @@ class DynamicFilters:
             else:
                 self._str_keys.append(c)
                 self._str_col_values[c] = sorted([str(v or '') for v in dset])
-    
+
     def show_filters(self):
 
         self._sel_columns = st.multiselect('Wybierz kolumny do przeglądania', options=self._df.columns)
         self._sel_single_filters = st.multiselect('Wybierz filtry pojedynczego wyboru', options=self._df.columns)
         mp_cols = [c for c in self._str_keys if c not in self._sel_single_filters]
         self._sel_multiple_filters = st.multiselect('Wybierz filtry wielokrotnego wyboru', options=mp_cols)
-        
+
         if self._sel_single_filters or self._sel_multiple_filters:
             st.header('Wybrane filtry')
         for f in self._sel_single_filters:
@@ -77,4 +78,3 @@ class DynamicFilters:
             df2 = df2[all_filters]
         df3 = df2[self._sel_columns or self._df.columns]
         st.write(df3)
-        

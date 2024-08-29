@@ -2,10 +2,9 @@ from typing import Optional, TypedDict
 
 import streamlit as st
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, Distance, VectorParams
+from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from streamlit_env import Env
-
 
 env = Env('.env')
 
@@ -29,7 +28,7 @@ class QdrantHelper:
     EMBEDDING_MODEL = 'text-embedding-3-small'  # text-embedding-3-large
 
     def __init__(self, openai_client):
-        self.openai_client = openai_client
+        self._openai_client = openai_client
 
     @classmethod
     @st.cache_resource
@@ -63,7 +62,7 @@ class QdrantHelper:
                     self.embeding_to_db(item['name'], value, idx=nr + 1)
 
     def get_embedding(self, text: str):
-        openai_client = self.openai_client()
+        openai_client = self._openai_client
         result = openai_client.embeddings.create(
             input=[text],
             model=self.EMBEDDING_MODEL,
