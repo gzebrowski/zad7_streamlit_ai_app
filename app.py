@@ -329,7 +329,8 @@ with tab1:
 
     log('gathered_data', gathered_data)
     if cls_fields:
-        curr_rec_story = audiorecorder(start_prompt='Nagraj', stop_prompt='Zakończ', key='audio_story')
+        rec_key = '_'.join(sorted(list(cls_fields.keys())))
+        curr_rec_story = audiorecorder(start_prompt='Nagraj', stop_prompt='Zakończ', key=rec_key)
         if curr_rec_story:
             # max_length = min(45000, len(cls_fields) * 10000)
             max_length = 45000
