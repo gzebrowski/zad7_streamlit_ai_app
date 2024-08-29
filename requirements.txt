@@ -8,6 +8,9 @@ python-dotenv
 python-magic
 qdrant-client
 streamlit-audiorecorder==0.0.5
+pydantic==2.8.2
+instructor
+
 # jupyterlab
 # matplotlib
 # plotly
