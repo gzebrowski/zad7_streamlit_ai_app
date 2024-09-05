@@ -234,7 +234,7 @@ def retrieve_structure(openai_client, text: str, response_model: BaseModel) -> d
 def categorize_person(provided_data, kmeans_ppln, cluster_names_descriptions):
     fav_activity = provided_data.pop('favorite_activity')
     data_person = {
-        k: provided_data[k][1] for k in provided_data
+        k: provided_data[k] for k in provided_data
     }
     for f_pol, f_field in FAV_ACTIVITIES:
         data_person[f'favorite_{f_field}'] = 1 if f_pol == fav_activity[1] else 0
@@ -256,11 +256,11 @@ qdrant_helper = QdrantHelper(get_openai_client())
 kmeans_pipeline, cluster_names_and_descriptions, search_data, full_data = load_my_model()
 dyn_f = DynamicFilters(full_data)
 
+session_data_defaults = [('gathered_data', {}), ('audio_hashes', []), ('audio_story_hash', None), ('logs', []),
+                         ('confirmed_poll', False)]
 if 'gathered_data' not in st.session_state:
-    st.session_state.gathered_data = {}
-    st.session_state.audio_hashes = []
-    st.session_state.audio_story_hash = None
-    st.session_state.logs = []
+    for ss_k, ss_d in session_data_defaults:
+        st.session_state[ss_k] = ss_d
 
 data_to_gather: list[tuple[str, str, dict]] = [
     ('gender', 'podaj swoją płeć', {'prefix': 'Płeć ', 'values': ['mężczyzna', 'kobieta']}),
@@ -272,7 +272,8 @@ data_to_gather: list[tuple[str, str, dict]] = [
     ('religious_faith', 'podaj wyznanie', {'prefix': 'Wyznanie ', 'values': FAITH_CHOICES[0]}),
     ('political_choice', 'podaj przekonania polityczne',
      {'prefix': 'opcja polityczna ', 'values': [x[0] for x in POLITICAL_CONVICTIONS_FAITH_RELATION]}),
-    ('age_category', 'podaj wiek', {'numeric': True, 'format': get_age_category, 'help_text': 'Podaj samą liczbę lat'}),
+    ('age_category', 'podaj wiek', {'numeric': True, 'format': get_age_category, 'help_text': 'Podaj samą liczbę lat',
+                                    '_vals': sorted(list(set([get_age_category(x) for x in range(18, 110, 5)])))}),
 ]
 qdrant_helper.index_embedings([
     {
@@ -337,8 +338,10 @@ with tab1:
             audio_bytes_story, hsh2 = get_mp3_audio_and_hash(curr_rec_story[:max_length])
             if hsh2 != st.session_state.audio_story_hash:
                 st.session_state.audio_story_hash = hsh2
-                txt2 = transcribe_audio(get_openai_client(), audio_bytes_story)
-                result3 = retrieve_structure(get_openai_client(), txt2, MyModel)
+                with st.spinner('Przetwarzam...'):
+                    txt2 = transcribe_audio(get_openai_client(), audio_bytes_story)
+                with st.spinner('Przetwarzam...'):
+                    result3 = retrieve_structure(get_openai_client(), txt2, MyModel)
                 log('data from AI', result3, 'transcribed text:', txt2)
                 for k, v in result3.items():
                     k2 = rev_replacements.get(k, k)
@@ -354,13 +357,29 @@ with tab1:
                 st.session_state.gathered_data = gathered_data
                 st.rerun()
     else:
-        pred_cluster_id, pred_cluster_data, ids = categorize_person(
-            gathered_data, kmeans_pipeline, cluster_names_and_descriptions)
-        st.header('Rezultat')
-        write_html(f"<p><strong>Najbardziej dopasowana kategoria:</strong> {pred_cluster_data['name']}</p>")
-        write_html(f"<p>{pred_cluster_data['description']}</p>")
-        st.header('Lista osób z tej kategorii')
-        st.write(full_data[full_data.index.isin(ids)])
+        gathered_data2 = {k: v[1] for k, v in gathered_data.items()}
+        poll_itm = {}
+        if not st.session_state.confirmed_poll:
+            st.write('Zainicjowaliśmy wstępnie ankietę o Tobie. Prosimy o ew. skorygowanie danych')
+            for itm2 in data_to_gather:
+                k5 = itm2[0]
+                poll_itm_opts = itm2[2].get('values') or itm2[2].get('_vals') or []
+                pl_itm_idx = poll_itm_opts.index(gathered_data2[k5]) if gathered_data2[k5] else None
+                poll_itm[k5] = st.radio(itm2[1], options=poll_itm_opts, index=pl_itm_idx)
+                if poll_itm[k5]:
+                    gathered_data2[k5] = poll_itm[k5]
+            confirm_poll = st.button('Potwierdź dane', key='confirm_poll_btn')
+            if confirm_poll:
+                st.session_state.confirmed_poll = True
+                st.rerun()
+        else:
+            pred_cluster_id, pred_cluster_data, ids = categorize_person(
+                gathered_data2, kmeans_pipeline, cluster_names_and_descriptions)
+            st.header('Rezultat')
+            write_html(f"<p><strong>Najbardziej dopasowana kategoria:</strong> {pred_cluster_data['name']}</p>")
+            write_html(f"<p>{pred_cluster_data['description']}</p>")
+            st.header('Lista osób z tej kategorii')
+            st.write(full_data[full_data.index.isin(ids)])
 
 with tab2:
     dyn_f.show_dataframe()
