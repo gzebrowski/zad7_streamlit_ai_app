@@ -330,12 +330,10 @@ with tab1:
 
     log('gathered_data', gathered_data)
     if cls_fields:
-        rec_key = '_'.join(sorted(list(cls_fields.keys())))
+        rec_key = '_'.join(sorted(list(cls_fields.keys())) + [st.session_state.audio_story_hash or ''])
         curr_rec_story = audiorecorder(start_prompt='Nagraj', stop_prompt='Zakończ', key=rec_key)
         if curr_rec_story:
-            # max_length = min(45000, len(cls_fields) * 10000)
-            max_length = 45000
-            audio_bytes_story, hsh2 = get_mp3_audio_and_hash(curr_rec_story[:max_length])
+            audio_bytes_story, hsh2 = get_mp3_audio_and_hash(curr_rec_story[:60000])
             if hsh2 != st.session_state.audio_story_hash:
                 st.session_state.audio_story_hash = hsh2
                 with st.spinner('Przetwarzam...'):
@@ -387,4 +385,4 @@ with tab2:
 
 with tab3:
     for log_line in st.session_state.get('logs') or []:
-        st.write(log_line)
+        st.write(log_line, )

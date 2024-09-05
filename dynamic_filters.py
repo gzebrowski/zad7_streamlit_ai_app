@@ -77,4 +77,4 @@ class DynamicFilters:
             all_filters = functools.reduce(lambda a, b: a & b, self._apply_filters)
             df2 = df2[all_filters]
         df3 = df2[self._sel_columns or self._df.columns]
-        st.write(df3)
+        st.dataframe(df3, use_container_width=True)
